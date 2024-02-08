@@ -2,13 +2,13 @@
 
 Short Notes contain mathematical insights and basics concepts related to the components of variants transformer architectures.
 
-- [Foundations of Transformers](https://github.com/paulosantosneto/transformers-variants/notes/Foundations.md)
-- [PostLN, PreLN and ResiDual Transformer](https://github.com/paulosantosneto/transformers-variants/notes/AboutNormalization.md)
-- [Multi-query and Multi-group](https://github.com/paulosantosneto/transformers-variants/notes/AboutMultihead.md)
+- [Foundations of Transformers](https://github.com/paulosantosneto/transformer-variants/blob/main/notes/Foundations.md)
+- [PostLN, PreLN and ResiDual Transformer](https://github.com/paulosantosneto/transformer-variants/blob/main/notes/AboutNormalization.md)
+- [Multi-query and Multi-group](https://github.com/paulosantosneto/transformer-variants/blob/main/notes/AboutMultihead.md)
 
 ## Applications
 
-- [Machine Translation](https://github.com/paulosantosneto/transformers-variants/notes/)
+- [Machine Translation](https://github.com/paulosantosneto/transformer-variants/blob/main/notes/MachineTranslation.md)
 
 ## References
 
