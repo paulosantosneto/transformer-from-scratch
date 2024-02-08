@@ -26,7 +26,7 @@ Mathematicaly, positional encoding is a type of **interpolation of manifolds tas
 $$
 \begin{equation}
 \vec{p_t}^{(i)} = \begin{pmatrix}
- sin(w_1 \cdot t) \\ cos(w_1 \cdot t) \\ \vdots \\ sin(w_{\frac{D}{2}}\cdot t) \\ cos(w_{\frac{D}{2}} \cdot t)
+ sin(w_1 \cdot t) \\ cos(w_1 \cdot t) \\ \cdots \\ sin(w_{\frac{D}{2}}\cdot t) \\ cos(w_{\frac{D}{2}} \cdot t)
 \end{pmatrix}, \text{where } w_k = \frac{1}{10000^{\frac{2k}{D}}}  
 \end{equation}
 $$
@@ -51,8 +51,11 @@ self.pos_enc[:, 1::2] = torch.cos(pos * wk)
 
 At the end, the positional encoding can be added or concatenated to the word embeddings. There is a lot of speculation about which one is more powerful and the mathematical aspects behind it [4], but both work well, although added with word embeddings are more common.
 
+<center>
 
 ![Positinal Encoding Heatmap.](https://github.com/paulosantosneto/transformer-variants/blob/main/notes/figures/pos_enc_heatmap.png)
+
+</center>
 
 
 
