@@ -8,7 +8,7 @@ import json
 import os
 import numpy as np
 
-from torchtext.vocab import build_vocab_from_iterator
+from torchtext.vocab import build_vocab_from_iterator, vocab
 from typing import Tuple, List
 
 def get_args():
@@ -31,13 +31,14 @@ def get_args():
     parser.add_argument('--save', default=True, type=bool)
     parser.add_argument('--plot', action='store_true')
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--max_len', default=128, type=int)
-    
+    parser.add_argument('--max_len', default=64, type=int)
+    parser.add_argument('--min_freq', default=2, type=int)
+
     # --- inference ---
     
     parser.add_argument('--model_load_path', default=None, type=str)
     parser.add_argument('--model_config_path', default=None, type=str)
-    parser.add_argument('--source_sentence', nargs='+', default='Hello World!', type=str)
+    parser.add_argument('--source_sentence', nargs='+', default="I like to eat.", type=str)
     parser.add_argument('--source_vocab', default='weights/en_vocab.pth', type=str)
     parser.add_argument('--target_vocab', default='weights/pt_vocab.pth', type=str)
     parser.add_argument('--source_tokenizer', default='en_core_web_sm', type=str)
@@ -83,7 +84,7 @@ def load_and_preprocessing_data(args: dict):
     # vocab of english sentences
     en_vocab = build_vocab_from_iterator(
         getTokens(datapipe, 0),
-        min_freq=2,
+        min_freq=args.min_freq,
         specials=special_tokens,
         special_first=True
     )
@@ -93,7 +94,7 @@ def load_and_preprocessing_data(args: dict):
     # vocab of portuguese sentences
     pt_vocab = build_vocab_from_iterator(
         getTokens(datapipe, 1),
-        min_freq=2,
+        min_freq=args.min_freq,
         specials=special_tokens,
         special_first=True
     )
@@ -111,14 +112,14 @@ def load_and_preprocessing_data(args: dict):
     
     datapipe = datapipe.map(separateLanguages)
     
-    datapipe = datapipe.map(applyPadding)
+    datapipe = datapipe.map(lambda x: applyPadding(x, max_length))
     
     train, test = datapipe.random_split(total_length=DATASET_SIZE, weights={'train': (1 - test_size),
     'test': test_size}, seed=0)
 
     return train, test, en_vocab, pt_vocab, eng, pt
 
-def applyPadding(pair_of_sequences):
+def applyPadding(pair_of_sequences, max_len):
     """
     Convert sequences to tensors and apply padding.
     
@@ -126,13 +127,12 @@ def applyPadding(pair_of_sequences):
 
     output: transform to tensor and apply special token '<pad>' (position  0) to padding the shortest sentences.
     """
-    max_length = 128
     
     # Convert tuples to lists and pad the sequences with '0' tokens to match the max length
-    padded_sequences_source = [list(seq)[1:] + [0] * (max_length - len(seq) + 1) for seq in pair_of_sequences[0]]
-    padded_sequences_target = [list(seq) + [0] * (max_length - len(seq)) for seq in pair_of_sequences[1]]
+    padded_sequences_source = [list(seq)[1:] + [0] * (max_len - len(seq) + 1) for seq in pair_of_sequences[0]]
+    padded_sequences_target = [list(seq) + [0] * (max_len - len(seq)) for seq in pair_of_sequences[1]]
     
-    shifted_sequences_target = [list(seq)[1:] + [0] * (max_length - len(seq) + 1) for seq in pair_of_sequences[1]]
+    shifted_sequences_target = [list(seq)[1:] + [0] * (max_len - len(seq) + 1) for seq in pair_of_sequences[1]]
 
     # Convert the padded sequences to tensors
     input_target = T.ToTensor(0)(padded_sequences_target)
@@ -204,6 +204,21 @@ def ptTokenize(text: str) -> List:
     """
     return [token.text for token in pt.tokenizer(text)]
 
+def inference_preprocessing(configs, args, source_vocab, target_vocab, source_tokenizer, target_tokenizer):
+
+    source_tokens = [token.text for token in source_tokenizer.tokenizer(args.source_sentence)]
+    
+    source = [source_vocab.get_stoi()['<sos>']]
+    target = [target_vocab.get_stoi()['<sos>']]
+
+    source.extend([source_vocab.get_stoi()[token] for token in source_tokens])
+    source.append(source_vocab.get_stoi()['<eos>'])
+    
+    source = [source + [source_vocab.get_stoi()['<pad>']] * (configs['max_len'] - len(source))]
+    target = [target + [target_vocab.get_stoi()['<pad>']] * (configs['max_len'] - len(target))]
+
+    return T.ToTensor(0)(source), T.ToTensor(0)(target)
+
 def plot_loss(epochs: int, loss_histories: list, labels: list):
     plt.clf()
 
@@ -237,11 +252,11 @@ def save_configs(en_vocab, pt_vocab, args: dict, model_name: str):
     with open(f'weights/configs_{model_name}.json', 'w') as json_config:
         json.dump(vars(args), json_config)
 
-def load_parameters(config_path: str, args: dict) -> dict:
+def load_configs(args: dict) -> dict:
     
     configs = {}
 
-    with open(f'weights/{config_path}', 'r') as json_config:
+    with open(f'weights/{args.model_config_path}', 'r') as json_config:
         configs = json.load(json_config)
     
     eng = spacy.load(args.source_tokenizer)
