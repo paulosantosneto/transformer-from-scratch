@@ -7,6 +7,30 @@ from models import *
 from tqdm import tqdm
 from torchinfo import summary
 
+def autoregressive_generator(model, source, target, target_vocab, target_tokenizer):
+
+    model.eval()
+    
+    translation = ''
+
+    for i in range(1, 129):
+        
+        logits = model(source, target)
+        
+        
+        probs = torch.argmax(logits, dim=-1).tolist()[0]
+        
+        word_predicted_idx = probs[i-1]
+        
+        if word_predicted_idx == target_vocab.get_stoi()['<eos>']:
+            break
+
+        translation += target_vocab.get_itos()[word_predicted_idx] + ' '
+        
+        target[0][i] = word_predicted_idx
+        
+    return translation
+    
 def train(model, optimizer, loss_fn, train_loader, test_loader, epochs, device):
     
     loss_h = []
@@ -20,19 +44,19 @@ def train(model, optimizer, loss_fn, train_loader, test_loader, epochs, device):
             source = source.to(device)
             target = target.to(device)
             output = output.to(device)
-
+            
             logits = model(source, target)
-
+            
             flattened_output = output.view(-1)
             batch_loss = loss_fn(logits.view(-1, logits.size()[-1]), flattened_output)
-            
-            epoch_loss += batch_loss.item()
             
             optimizer.zero_grad()
             batch_loss.backward()
             optimizer.step()
             
             batch_bar.set_postfix({'Loss': batch_loss.item()}, refresh=True)
+            
+            epoch_loss += batch_loss.item()
         
         loss_h.append(epoch_loss)
         
@@ -47,7 +71,7 @@ if __name__ == '__main__':
         # --- DataLoader ---
     
         train_dataset, test_dataset, en_vocab, pt_vocab, eng, pt = load_and_preprocessing_data(args)
-
+        
         # --- Model ---
         
         model = Transformer(n=args.N, 
@@ -56,7 +80,8 @@ if __name__ == '__main__':
                             heads=args.heads,
                             source_vocab=en_vocab,
                             target_vocab=pt_vocab,
-                            device=args.device
+                            device=args.device,
+                            max_len=args.max_len
         ).to(args.device)
         
         # --- Model Architecture & Summary ---
@@ -89,16 +114,31 @@ if __name__ == '__main__':
     
     elif args.mode == 'inference':
         
-        configs, eng, pt, en_vocab, pt_vocab = load_configs(args.model_config_path)
+        configs, source_tokenizer, target_tokenizer, source_vocab, target_vocab = load_configs(args)
+        
+        model = Transformer(n=configs['N'],
+                            dm=configs['dm'],
+                            dff=configs['dff'],
+                            heads=configs['heads'],
+                            source_vocab=source_vocab,
+                            target_vocab=target_vocab,
+                            device=args.device,
+                            max_len=args.max_len
+        )
 
-        model = Transformer(n=args.N,
-                            dm=args.dm,
-                            dff=args.dff,
-                            heads=args.heads,
-                            source_vocab=en_vocab,
-                            target_vocab=pt_vocab,
-                            device=args.device
-        ).to(args.device)
+        model.load_state_dict(torch.load(args.model_load_path))
         
+        model.to(args.device)
+
         #TODO autoregressive generator 
+        tensor_source_sentence, tensor_target_sentence = inference_preprocessing(configs, args, source_vocab, target_vocab, source_tokenizer, target_tokenizer)
         
+        tensor_source_sentence = tensor_source_sentence.to(args.device)
+        tensor_target_sentence = tensor_target_sentence.to(args.device)
+
+        output = autoregressive_generator(model, tensor_source_sentence, tensor_target_sentence, target_vocab, target_tokenizer)
+        
+        print('---- Your Text ----')
+        print('Source sentence:', args.source_sentence)
+        print('Translation sentence:', output)
+
