@@ -1,7 +1,12 @@
+import torch
 import torchdata.datapipes as dp
 import torchtext.transforms as T
 import spacy
 import argparse
+import matplotlib.pyplot as plt
+import json
+import os
+import numpy as np
 
 from torchtext.vocab import build_vocab_from_iterator
 from typing import Tuple, List
@@ -15,19 +20,28 @@ def get_args():
     parser.add_argument('--device', default='cuda', type=str)
     parser.add_argument('--seed', default='123', type=str)
     parser.add_argument('--test_size', default=0.2, type=float)    
-    parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--path_file', default='data/machine_translation/tatoeba_en_pt.tsv', type=str)
+    parser.add_argument('--epochs', default=5, type=int)
+    parser.add_argument('--file_path', default='data/machine_translation/teste.tsv', type=str)
     parser.add_argument('--mode', default='train', type=str)
-    parser.add_argument('--dim', default=512, type=str)
-    parser.add_argument('--save_model', default=True, type=bool)
-    parser.add_argument('--plot_loss', action='store_true')
+    parser.add_argument('--dm', default=512, type=str)
+    parser.add_argument('--batch_size', default=64, type=str)
+    parser.add_argument('--N', default=1, type=int)
+    parser.add_argument('--dff', default=2048, type=int)
+    parser.add_argument('--heads', default=8, type=int)
+    parser.add_argument('--save', default=True, type=bool)
+    parser.add_argument('--plot', action='store_true')
     parser.add_argument('--verbose', action='store_true')
-
+    parser.add_argument('--max_len', default=128, type=int)
+    
     # --- inference ---
     
     parser.add_argument('--model_load_path', default=None, type=str)
     parser.add_argument('--model_config_path', default=None, type=str)
     parser.add_argument('--source_sentence', nargs='+', default='Hello World!', type=str)
+    parser.add_argument('--source_vocab', default='weights/en_vocab.pth', type=str)
+    parser.add_argument('--target_vocab', default='weights/pt_vocab.pth', type=str)
+    parser.add_argument('--source_tokenizer', default='en_core_web_sm', type=str)
+    parser.add_argument('--target_tokenizer', default='pt_core_news_sm', type=str)
 
     args = parser.parse_args()
 
@@ -36,7 +50,7 @@ def get_args():
 
     return args
 
-def load_and_preprocessing_data(FILE_PATH: str, test_size: float):
+def load_and_preprocessing_data(args: dict):
     """
     Receives a FILE_PATH with entire sentences for translation and return
     a DataLoader with train/test datasets.
@@ -46,9 +60,16 @@ def load_and_preprocessing_data(FILE_PATH: str, test_size: float):
     """
     
     global eng, pt, en_vocab, pt_vocab
+    
+    FILE_PATH = args.file_path
+    test_size = args.test_size
+    BATCH_SIZE = args.batch_size
+    max_length = args.max_len
+    source_tokenizer = args.source_tokenizer
+    target_tokenizer = args.target_tokenizer
 
-    eng = spacy.load('en_core_web_sm')
-    pt = spacy.load('pt_core_news_sm')
+    eng = spacy.load(source_tokenizer)
+    pt = spacy.load(target_tokenizer)
 
     datapipe = dp.iter.IterableWrapper([FILE_PATH])
     datapipe = dp.iter.FileOpener(datapipe, mode='rb')
@@ -81,24 +102,21 @@ def load_and_preprocessing_data(FILE_PATH: str, test_size: float):
     
     datapipe = datapipe.map(applyTransform)
     
-    BATCH_SIZE = 32
-
     datapipe = datapipe.bucketbatch(
         batch_size = BATCH_SIZE, 
         batch_num = (DATASET_SIZE + BATCH_SIZE - 1) // BATCH_SIZE,
         bucket_num=1,
-        use_in_batch_shuffle=False,
-        sort_key=sortBucket
+        use_in_batch_shuffle=False
     )
     
     datapipe = datapipe.map(separateLanguages)
     
-    datapipe.map(applyPadding)
+    datapipe = datapipe.map(applyPadding)
     
     train, test = datapipe.random_split(total_length=DATASET_SIZE, weights={'train': (1 - test_size),
     'test': test_size}, seed=0)
 
-    return train, test
+    return train, test, en_vocab, pt_vocab, eng, pt
 
 def applyPadding(pair_of_sequences):
     """
@@ -106,10 +124,22 @@ def applyPadding(pair_of_sequences):
     
     input of form: [[(X_1, ..., X_n), (y_1, ..., y_n)]_1, ..., [(X_1, ..., X_n), (y_1, ..., y_n)]_b], where 'n' is the batch_size and 'b' is the number of batches.
 
-    output: transform to tensor and apply special token '<pad>' (position 0) to padding the shortest sentences.
+    output: transform to tensor and apply special token '<pad>' (position  0) to padding the shortest sentences.
     """
+    max_length = 128
+    
+    # Convert tuples to lists and pad the sequences with '0' tokens to match the max length
+    padded_sequences_source = [list(seq)[1:] + [0] * (max_length - len(seq) + 1) for seq in pair_of_sequences[0]]
+    padded_sequences_target = [list(seq) + [0] * (max_length - len(seq)) for seq in pair_of_sequences[1]]
+    
+    shifted_sequences_target = [list(seq)[1:] + [0] * (max_length - len(seq) + 1) for seq in pair_of_sequences[1]]
 
-    return (T.ToTensor(0)(list(pair_of_sequences[0])), T.ToTensor(0)(list(pair_of_sequences[1])))
+    # Convert the padded sequences to tensors
+    input_target = T.ToTensor(0)(padded_sequences_target)
+    input_source = T.ToTensor(0)(padded_sequences_source)
+    output_target = T.ToTensor(0)(shifted_sequences_target)
+
+    return (input_source, input_target, output_target)
 
 def separateLanguages(sequence_pairs):
     """
@@ -173,4 +203,52 @@ def ptTokenize(text: str) -> List:
     Tokenize a Portuguese text and return a list of tokens.
     """
     return [token.text for token in pt.tokenizer(text)]
+
+def plot_loss(epochs: int, loss_histories: list, labels: list):
+    plt.clf()
+
+    plt.plot(np.arange(epochs), loss_histories, label=labels)
+
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig('loss.png')
+    plt.clf()
+
+# --- Load Model ---
+
+def save_model(model: any, epochs: str, architecture: str):
+
+    try:
+        if not os.path.exists('weights'):
+            os.makedirs('weights')
+
+        torch.save(model.state_dict(), f'weights/best_model_{architecture}_{epochs}.pth')
+
+        return 'Model was successfully saved!'
+    except:
+        raise 'There was a problem saving the model!'
+
+def save_configs(en_vocab, pt_vocab, args: dict, model_name: str):
+    
+    torch.save(en_vocab, args.source_vocab)
+    torch.save(pt_vocab, args.target_vocab)
+    
+    with open(f'weights/configs_{model_name}.json', 'w') as json_config:
+        json.dump(vars(args), json_config)
+
+def load_parameters(config_path: str, args: dict) -> dict:
+    
+    configs = {}
+
+    with open(f'weights/{config_path}', 'r') as json_config:
+        configs = json.load(json_config)
+    
+    eng = spacy.load(args.source_tokenizer)
+    pt = spacy.load(args.target_tokenizer)
+    
+    en_vocab = torch.load(args.source_vocab)
+    pt_vocab = torch.load(args.target_vocab)
+
+    return configs, eng, pt, en_vocab, pt_vocab
 
