@@ -113,15 +113,15 @@ class SelfAttention(nn.Module):
         scores = torch.div(torch.matmul(q, k), f)
         
         # --- padding mask ---
-
-        if mask != None:
-            scores = self._padding_mask(mask, scores)
+        
+        scores = self._padding_mask(mask, scores)
         
         # --- upper triangular mask ---
 
         if self.mask:
-            scores = torch.triu(torch.full(scores.shape, float('-inf')), diagonal=1)
-        
+            scores = scores + torch.triu(torch.full(scores.shape, float('-inf')), diagonal=1).to('cuda')
+            #print('Scores:', scores)
+
         return torch.matmul(F.softmax(scores.to('cuda'), dim=-1), v)
 
 class MultiHeadAttention(nn.Module):
@@ -204,7 +204,7 @@ class Decoder(nn.Module):
     def __init__(self, heads: int, d_ff: int, dm: int, d_k: int, d_v: int, dropout: float, bias=bool):
         super().__init__()
         self.mha = MultiHeadAttention(heads, dm, d_k, d_v, bias, mask=True)
-        self.cross_attention = MultiHeadAttention(heads, dm, d_k, d_v, bias, mask=None)
+        self.cross_attention = MultiHeadAttention(heads, dm, d_k, d_v, bias, mask=False)
         self.dropout = nn.Dropout(p=dropout)
         self.layer_norm_mask_attention = nn.LayerNorm(dm, eps=1e-6)
         self.layer_norm_cross_attention = nn.LayerNorm(dm, eps=1e-6)
