@@ -7,16 +7,15 @@ from models import *
 from tqdm import tqdm
 from torchinfo import summary
 
-def autoregressive_generator(model, source, target, target_vocab, target_tokenizer):
+def autoregressive_generator(model, configs, source, target, target_vocab, target_tokenizer):
 
     model.eval()
     
     translation = ''
 
-    for i in range(1, 129):
+    for i in range(1, configs['max_len']+1):
         
         logits = model(source, target)
-        
         
         probs = torch.argmax(logits, dim=-1).tolist()[0]
         
@@ -136,7 +135,7 @@ if __name__ == '__main__':
         tensor_source_sentence = tensor_source_sentence.to(args.device)
         tensor_target_sentence = tensor_target_sentence.to(args.device)
 
-        output = autoregressive_generator(model, tensor_source_sentence, tensor_target_sentence, target_vocab, target_tokenizer)
+        output = autoregressive_generator(model, configs, tensor_source_sentence, tensor_target_sentence, target_vocab, target_tokenizer)
         
         print('---- Your Text ----')
         print('Source sentence:', args.source_sentence)
