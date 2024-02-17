@@ -80,7 +80,7 @@ class Transformer(nn.Module):
            x_src = x_enc
 
         for decoder in self.decoders:
-           x_dec = decoder(x_trg, x_src, x_src, trg_mask, src_mask)
+           x_dec = decoder(x_trg, x_src, x_src, src_mask, trg_mask)
            x_trg = x_dec
         
         # --- Output ---
@@ -97,24 +97,27 @@ class SelfAttention(nn.Module):
         self.dm = dm
         self.mask = mask
     
-    def _padding_mask(self, mask, scores):
+    def _padding_mask(self, vmask, hmask, scores):
 
-        mask = torch.unsqueeze(torch.unsqueeze(mask, 1), 1)
-        
+        vmask = torch.unsqueeze(torch.unsqueeze(vmask, 1), 1)
+        hmask = torch.unsqueeze(torch.unsqueeze(hmask, 1), 1)
+
         B, H, T, T = scores.size()
 
-        padding_mask = mask.repeat(1, 1, H, T).view(B, -1, T, T)
-        new_scores = scores * padding_mask
+        padding_vmask = vmask.repeat(1, 1, H, T).view(B, -1, T, T)
+        padding_hmask = hmask.repeat(1, 1, H, T).view(B, -1, T, T).transpose(3, 2)
 
-        return new_scores.masked_fill(new_scores == 0, float('-inf'))
+        new_scores = scores * (padding_vmask * padding_hmask)
 
-    def forward(self, q, k, v, f, mask):
+        return new_scores.masked_fill(new_scores == 0, 1e-10)
+
+    def forward(self, q, k, v, f, vmask, hmask):
         
         scores = torch.div(torch.matmul(q, k), f)
         
         # --- padding mask ---
         
-        scores = self._padding_mask(mask, scores)
+        scores = self._padding_mask(vmask, hmask, scores)
         
         # --- upper triangular mask ---
 
@@ -153,7 +156,7 @@ class MultiHeadAttention(nn.Module):
         
         self.attention_mechanism = SelfAttention(dm, mask)
 
-    def forward(self, xq, xk, xv, mask):
+    def forward(self, xq, xk, xv, vmask, hmask):
         
         batch_size, sequence_length, _ = xq.size()
         
@@ -169,7 +172,7 @@ class MultiHeadAttention(nn.Module):
         value = torch.matmul(xv, self.w_v)
         scale_factor = torch.tensor(self.d_k, dtype=torch.float)
 
-        out = self.attention_mechanism(query, key, value, scale_factor, mask)
+        out = self.attention_mechanism(query, key, value, scale_factor, vmask, hmask)
         
         concat = out.permute(0, 2, 1, 3).contiguous().view(batch_size, sequence_length, -1)
 
@@ -190,7 +193,7 @@ class Encoder(nn.Module):
 
         # --- multi-head attention without mask ---
         
-        X = self.dropout(self.mha(X, X, X, src_mask))
+        X = self.dropout(self.mha(X, X, X, src_mask, src_mask))
         X = self.layer_norm(residual + X)
         
         # --- feed forward ---
@@ -210,20 +213,20 @@ class Decoder(nn.Module):
         self.layer_norm_cross_attention = nn.LayerNorm(dm, eps=1e-6)
         self.ffn = PositionWiseFFS(dm, d_ff, bias)
 
-    def forward(self, X, k, v, trg_mask, src_mask):
+    def forward(self, X, k, v, src_mask, trg_mask):
         
         residual = X
 
         # --- masked multi-head attention with mask ---
 
-        X = self.dropout(self.mha(X, X, X, trg_mask))
+        X = self.dropout(self.mha(X, X, X, trg_mask, trg_mask))
         X = self.layer_norm_mask_attention(residual + X)
 
         # --- multi-head attention with cross-attention---
         
         residual = X
 
-        X = self.dropout(self.cross_attention(X, k, v, src_mask))
+        X = self.dropout(self.cross_attention(X, k, v, src_mask, trg_mask))
         X = self.layer_norm_cross_attention(residual + X)
         
         # --- feed forward ---
