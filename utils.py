@@ -38,7 +38,7 @@ def get_args():
     
     parser.add_argument('--model_load_path', default=None, type=str)
     parser.add_argument('--model_config_path', default=None, type=str)
-    parser.add_argument('--source_sentence', nargs='+', default="I like to eat.", type=str)
+    parser.add_argument('--source_sentence', nargs='+', default="I lost my inspiration.", type=str)
     parser.add_argument('--source_vocab', default='weights/en_vocab.pth', type=str)
     parser.add_argument('--target_vocab', default='weights/pt_vocab.pth', type=str)
     parser.add_argument('--source_tokenizer', default='en_core_web_sm', type=str)
